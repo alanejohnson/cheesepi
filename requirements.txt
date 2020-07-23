@@ -1,0 +1,11 @@
+argparse
+cherrypy
+dnspython
+future
+influxdb
+pip
+setuptools
+speedtest-cli
+twisted
+uptime
+youtube_dl

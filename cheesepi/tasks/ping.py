@@ -29,29 +29,30 @@ class Ping(Task):
 
     # actually perform the measurements, no arguments required
     def run(self):
-        logger.info("Pinging: {} @ {}, PID: {}".format(self.spec['landmark'], time.time(), os.getpid()))
+        logger.info("Pinging: %s @ %f, PID: %d", self.spec['landmark'], time.time(), os.getpid())
         self.measure()
 
     # measure and record funtion
     def measure(self):
         start_time = cheesepi.utils.now()
-        op_output = self.perform(self.spec['landmark'], self.spec['ping_count'], self.spec['packet_size'])
+        op_output = self.perform(self.spec['landmark'], self.spec['ping_count'],
+                                 self.spec['packet_size'])
         end_time = cheesepi.utils.now()
 
         logger.debug(op_output)
-        if op_output != None: # we succeeded
-            self.parse_output(op_output, self.spec['landmark'],
-                start_time, end_time, self.spec['packet_size'], self.spec['ping_count'])
+        if op_output is not None: # we succeeded
+            self.parse_output(op_output, self.spec['landmark'], start_time, end_time,
+                              self.spec['packet_size'], self.spec['ping_count'])
         self.dao.write_op(self.spec['taskname'], self.spec)
-
 
     #ping function
     def perform(self, landmark, ping_count, packet_size):
         packet_size -= 8 # change packet size to payload length!
         command = "ping -c {} -s {} {}".format(ping_count, packet_size, landmark)
-        logging.info("Executing: " + command)
+        logging.info("Executing: %s", command)
         logger.info(command)
         self.spec['return_code'], output = self.execute(command)
+        logger.info(output)
 
         if self.spec['return_code'] == 0:
             return output
