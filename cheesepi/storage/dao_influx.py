@@ -2,14 +2,14 @@
   All rights reserved.
   Redistribution and use in source and binary forms, with or without
   modification, are permitted provided that the following conditions are met:
-	  * Redistributions of source code must retain the above copyright
-		notice, this list of conditions and the following disclaimer.
-	  * Redistributions in binary form must reproduce the above copyright
-		notice, this list of conditions and the following disclaimer in the
-		documentation and/or other materials provided with the distribution.
-	  * Neither the name of The Swedish Institute of Computer Science nor the
-		names of its contributors may be used to endorse or promote products
-		derived from this software without specific prior written permission.
+  * Redistributions of source code must retain the above copyright
+    notice, this list of conditions and the following disclaimer.
+  * Redistributions in binary form must reproduce the above copyright
+    notice, this list of conditions and the following disclaimer in the
+    documentation and/or other materials provided with the distribution.
+  * Neither the name of The Swedish Institute of Computer Science nor the
+    names of its contributors may be used to endorse or promote products
+    derived from this software without specific prior written permission.
 
  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -27,163 +27,154 @@ Testers:
 """
 
 import sys
-import logging
 import hashlib
 import json
 import traceback
 from requests.exceptions import ConnectionError
+from pprint import pformat
 
-import cheesepi as cp
+import cheesepi
 import cheesepi.storage.dao as dao
 
-logger = cp.config.get_logger(__name__)
+logger = cheesepi.config.get_logger(__name__)
 
 try:
-	from influxdb import InfluxDBClient
-	from influxdb.client import InfluxDBClientError
-except AttributeError as e:
-	msg =  "Problem importing Python InfluxDB module!\n"
-	msg += "Either due to this computer not having a timezone set.\n"
-	msg += "Use `raspi-config` > Internationalisation Options to set one.\n"
-	msg += "Alternatively, install 'pandas' through pip, rather than apt."
-	logger.error(msg)
-	sys.exit(1)
+    from influxdb import InfluxDBClient
+    from influxdb.client import InfluxDBClientError
+except AttributeError:
+    msg = "Problem importing Python InfluxDB module!\n"
+    msg += "Either due to this computer not having a timezone set.\n"
+    msg += "Use `raspi-config` > Internationalisation Options to set one.\n"
+    msg += "Alternatively, install 'pandas' through pip, rather than apt."
+    logger.error(msg)
+    sys.exit(1)
 
-host     = "localhost"
-port     = 8086
+host = "localhost"
+port = 8086
 username = "root"
 password = "root"
 database = "cheesepi"
 
 class DAO_influx(dao.DAO):
-	def __init__(self):
-		logger.info("Connecting to influx: {} {} {}".format(username,password,database))
-		try: # Get a hold of a Influx connection
-			self.conn = InfluxDBClient(host, port, username, password, database)
-		except Exception as e:
-			msg = "Error: Connection to Influx database failed! Ensure InfluxDB is running. "+str(e)
-			logger.error(msg)
-			logger.exception(e)
-			cp.config.make_databases()
-			exit(1)
+    def __init__(self):
+        logger.info("Connecting to influx: {} {} {}".format(username,password,database))
+        try: # Get a hold of a Influx connection
+            self.conn = InfluxDBClient(host, port, username, password, database)
+        except Exception as e:
+            msg = "Error: Connection to Influx database failed! Ensure InfluxDB is running. "+str(e)
+            logger.error(msg)
+            logger.exception(e)
+            cheesepi.config.make_databases()
+            sys.exit(1)
 
-	def make_database(self, name):
-		try:
-			self.conn.create_database(name,True)
-		except Exception as e:
-			# database probably already exists
-			pass
+    def make_database(self, name):
+        try:
+            self.conn.create_database(name,True)
+        except Exception:
+            # database probably already exists
+            pass
 
-	def dump(self, since=-1):
-		try:
-			series = self.conn.get_list_series()
-		except Exception as e:
-			msg = "Problem connecting to InfluxDB when listing series: "+str(e)
-			logger.error(msg)
-			logger.exception(e)
-			exit(1)
+    def dump(self, since=-1):
+        try:
+            series = self.conn.get_list_series()
+        except Exception as e:
+            msg = "Problem connecting to InfluxDB when listing series: "+str(e)
+            logger.error(msg)
+            logger.exception(e)
+            sys.exit(1)
 
-		# maybe prune series?
-		dumped_db = {}
-		for s in series:
-			series_name = s['name']
-			logger.info(series_name)
-			dumped_series = self.conn.query('select * from {} where time > %d limit 5;'.format(series_name, 0*1000))
-			logger.info(dumped_series.raw['results'])
-			dumped_db[series_name] = json.dumps(dumped_series.raw['results'])
-		return dumped_db
+        # maybe prune series?
+        dumped_db = {}
+        for s in series:
+            series_name = s['name']
+            logger.info(series_name)
+            dumped_series = self.conn.query('select * from {} where time > %d limit 5;'.format(series_name, 0*1000))
+            logger.info(dumped_series.raw['results'])
+            dumped_db[series_name] = json.dumps(dumped_series.raw['results'])
+        return dumped_db
 
+    def format09(self,table,dic):
+        return [{'measurement':table, "database":"cheesepi", "fields":dic, "tags":{"source":"dao"} }]
+        #return json_body
 
+    def format08(self, table, dic):
+        for k in dic.keys():
+                dic[k]=dic[k]
+        #json_dic = [{"name":table, "columns":dic.keys(), "points":[dic.values()]}]
+        #json_str = '[{"name":"{}", "columns":{}, "points":[{}]}]'.format(table,json.dumps(dic.keys()),json.dumps(dic.values()))
+        json_str = '[{"measurement":"{}", "fields":{}, '.format(table, "")
+        #json_str = '[{"name":"ping", "columns":["test"], "points":["value"]}]'
+        return json_str
 
-	def format09(self,table,dic):
-		return [{'measurement':table, "database":"cheesepi", "fields":dic, "tags":{"source":"dao"} }]
-		#return json_body
+    # Operator interactions
+    def write_op(self, op_type, dic, binary=None):
+        if not self.validate_op(op_type):
+            logger.warning("Operation of type {} not valid: ".format(op_type) +  str(dic))
+            return
+        #if binary!=None:
+        #     # save binary, check its not too big
+        #     dic['binary'] = bson.Binary(binary)
+        config = cheesepi.config.get_config()
+        dic['version'] = config['version']
+        to_hash = config['secret'] + str(dic)
+        dic['sign'] = hashlib.md5(to_hash.encode("utf-8")).hexdigest()
 
+        points = self.format09(op_type, dic)
+        logger.debug(points)
+        logger.info("Saving {} Op:\n{}".format(op_type, pformat(points)))
+        result = None
+        try:
+            result = self.conn.write_points(points)
+        except InfluxDBClientError as exception:
+            if exception.code == 204: # success!
+                return True
+            traceback.print_exc()
+        except ConnectionError as exception:
+            logger.error("Database connection error, is the database server running?")
+            return None
+        except Exception as exception:
+            msg = "Database Influx " + op_type + " Op write failed! " + str(exception)
+            logger.error(msg)
+            logger.exception(exception)
+            #cheesepi.config.make_databases()
+            return None
+        return result
 
-	def format08(self, table, dic):
-		for k in dic.keys():
-				dic[k]=dic[k]
-		#json_dic = [{"name":table, "columns":dic.keys(), "points":[dic.values()]}]
-		#json_str = '[{"name":"{}", "columns":{}, "points":[{}]}]'.format(table,json.dumps(dic.keys()),json.dumps(dic.values()))
-		json_str = '[{"measurement":"{}", "fields":{}, '.format(table,"")
-		#json_str = '[{"name":"ping", "columns":["test"], "points":["value"]}]'
-		return json_str
+    def read_op(self, op_type, timestamp=0, limit=100):
+        op = self.conn.query('select * from '+op_type+' limit 1;')
+        return op
 
+    ## User level interactions
+    # Note that assignments are not deleted, but the most recent assignemtn
+    # is always returned
+    def read_user_attribute(self, attribute):
+        try:
+            result = self.conn.query('select {} from user limit 1;'.format(attribute))
+            if result == []:
+                return -1
+            column_index = result[0]['columns'].index(attribute)
+            value = result[0]['points'][0][column_index]
+        except InfluxDBClientError:
+            #msg = "Problem connecting to InfluxDB: "+str(e)
+            #logger.error(msg)
+            return -1
+        except Exception as exception:
+            msg = "Problem connecting to InfluxDB: " + str(exception)
+            logger.error(msg)
+            logger.exception(exception)
+            sys.exit(1)
+        return value
 
-	# Operator interactions
-	def write_op(self, op_type, dic, binary=None):
-		if not self.validate_op(op_type):
-			logger.warning("Operation of type {} not valid: ".format(op_type) +  str(dic))
-			return
-		#if binary!=None:
-		#	 # save binary, check its not too big
-		#	 dic['binary'] = bson.Binary(binary)
-		config = cp.config.get_config()
-		dic['version'] = config['version']
-		md5 = hashlib.md5(config['secret']+str(dic)).hexdigest()
-		dic['sign']    = md5
-
-		points=self.format09(op_type, dic)
-		logger.debug(points)
-		from pprint import pformat
-		logger.info("Saving {} Op:\n{}".format(op_type, pformat(points)))
-		result = None
-		try:
-			result = self.conn.write_points(points)
-		except InfluxDBClientError as e:
-			if e.code==204: # success!
-				return True
-			traceback.print_exc()
-		except ConnectionError as e:
-			logger.error("Database connection error, is the database server running?")
-			return None
-		except Exception as e:
-			msg = "Database Influx "+op_type+" Op write failed! "+str(e)
-			logger.error(msg)
-			logger.exception(e)
-			#cheesepi.config.make_databases()
-			#exit(1)
-			return None
-		return result
-
-	def read_op(self, op_type, timestamp=0, limit=100):
-		op = self.conn.query('select * from '+op_type+' limit 1;')
-		return op
-
-
-
-	## User level interactions
-	# Note that assignments are not deleted, but the most recent assignemtn
-	# is always returned
-	def read_user_attribute(self, attribute):
-		try:
-			result = self.conn.query('select {} from user limit 1;'.format(attribute))
-			if result==[]:
-				return -1
-			column_index = result[0]['columns'].index(attribute)
-			value = result[0]['points'][0][column_index]
-		except InfluxDBClientError:
-			#msg = "Problem connecting to InfluxDB: "+str(e)
-			#logger.error(msg)
-			return -1
-		except Exception as e:
-			msg = "Problem connecting to InfluxDB: "+str(e)
-			logger.error(msg)
-			logger.exception(e)
-			exit(1)
-		return value
-
-	def write_user_attribute(self, attribute, value):
-		# check we dont already exist
-		try:
-			logger.info("Saving user attribute: {} to {} ".format(attribute, value))
-			#json = self.to_json("user", {attribute:value})
-			json = self.toFormat("user", {attribute:value})
-			logger.debug(json)
-			return self.conn.write_points(json)
-		except Exception as e:
-			msg = "Problem connecting to InfluxDB: "+str(e)
-			logger.error(msg)
-			logger.exception(e)
-			exit(1)
-
+    def write_user_attribute(self, attribute, value):
+        # check we dont already exist
+        try:
+            logger.info("Saving user attribute: {} to {} ".format(attribute, value))
+            #json = self.to_json("user", {attribute:value})
+            json = self.toFormat("user", {attribute:value})
+            logger.debug(json)
+            return self.conn.write_points(json)
+        except Exception as exception:
+            msg = "Problem connecting to InfluxDB: " + str(exception)
+            logger.error(msg)
+            logger.exception(exception)
+            sys.exit(1)
