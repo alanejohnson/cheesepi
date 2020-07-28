@@ -5,10 +5,10 @@ import os
 
 import speedtest
 
-import cheesepi as cp
+import cheesepi
 from cheesepi.tasks.task import Task
 
-logger = cp.config.get_logger(__name__)
+logger = cheesepi.config.get_logger(__name__)
 
 class Throughput(Task):
 
@@ -24,14 +24,14 @@ class Throughput(Task):
     def measure(self):
         threads = None
         servers = []
-        self.spec['start_time'] = cp.utils.now()
+        self.spec['start_time'] = cheesepi.utils.now()
         st = speedtest.Speedtest()
         st.get_servers(servers)
         st.get_best_server()
         st.download(threads=threads)
         st.upload(threads=threads)
         st.results.share()
-        self.spec['end_time'] = cp.utils.now()
+        self.spec['end_time'] = cheesepi.utils.now()
 
         op_output = st.results.dict()
         logger.debug(op_output)
@@ -50,8 +50,7 @@ class Throughput(Task):
         return self.spec
 
 if __name__ == "__main__":
-    dao = cp.storage.get_dao()
-
+    dao = cheesepi.storage.get_dao()
     spec = {}
     throughput_task = Throughput(dao, spec)
     throughput_task.run()

@@ -2,6 +2,7 @@ argparse
 cherrypy
 dnspython
 future
+icmplib
 influxdb
 pip
 setuptools

@@ -4,6 +4,7 @@ import sys
 import time
 import logging
 import socket
+import statistics
 
 import cheesepi
 from cheesepi.tasks.task import Task
@@ -41,7 +42,7 @@ class Ping(Task):
 
         logger.debug(op_output)
         if op_output is not None: # we succeeded
-            self.parse_output(op_output, self.spec['landmark'], start_time, end_time,
+            self.parse_output(str(op_output), self.spec['landmark'], start_time, end_time,
                               self.spec['packet_size'], self.spec['ping_count'])
         self.dao.write_op(self.spec['taskname'], self.spec)
 
@@ -83,13 +84,13 @@ class Ping(Task):
                 elif "icmp_seq" in line: # Linux counts from 0
                     sequence_num = int(re.findall(r'icmp_.eq=[\d]+ ', line)[0][9:-1])
                 else:
-                    logging.error("ping parse error:" + line)
+                    logging.error("ping parse error: %s", line)
                     sys.exit(1)
-                delay = re.findall('time=.*? ms',line)[0][5:-3]
+                delay = re.findall('time=.*? ms', line)[0][5:-3]
                 # only save returned pings!
-                delays[sequence_num-1]=float(delay)
+                delays[sequence_num-1] = float(delay)
             elif "packet loss" in line:
-                loss = re.findall(r'[\d]+% packet loss',line)[0][:-13]
+                loss = re.findall(r'[\d]+% packet loss', line)[0][:-13]
                 self.spec["packet_loss"] = float(loss)
             elif "min/avg/max/" in line:
                 fields = line.split()[3].split("/")
@@ -98,14 +99,17 @@ class Ping(Task):
                 self.spec["maximum_RTT"] = float(fields[2])
                 self.spec["stddev_RTT"] = float(fields[3])
 
+        print(delays)
         self.spec['delays'] = str(delays)
+        self.spec["minimum_RTT"] = min(delays)
+        self.spec["average_RTT"] = statistics.mean(delays)
+        self.spec["maximum_RTT"] = max(delays)
         self.spec['uploaded'] = self.spec['packet_size'] * self.spec['ping_count']
         self.spec['downloaded'] = 8 * self.spec['ping_count']
 
 if __name__ == "__main__":
     # general logging here? unable to connect etc
     dao = cheesepi.storage.get_dao()
-
     spec = {'landmark':'www.sics.se'}
     ping_task = Ping(dao, spec)
     ping_task.run()
